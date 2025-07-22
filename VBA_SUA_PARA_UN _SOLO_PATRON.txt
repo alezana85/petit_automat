@@ -1,0 +1,105 @@
+Option Compare Database
+Option Explicit
+
+' Función principal que maneja la lógica de eliminación
+Sub EliminarRegistrosDiferentes()
+    Dim strRegistro As String
+    Dim db As DAO.Database
+    Dim tdf As DAO.TableDef
+    Dim fld As DAO.Field
+    Dim strSQL As String
+    Dim strTablas As String
+    Dim transactionStarted As Boolean
+    Dim currentTableName As String
+    
+    ' Inicializar variable de control de transacción
+    transactionStarted = False
+    currentTableName = ""
+    
+    ' Solicitar el registro patronal
+    strRegistro = InputBox("Ingrese el Registro Patronal a conservar:", "Filtrar Registros")
+    
+    ' Validar si el usuario canceló
+    If strRegistro = "" Then
+        MsgBox "Operación cancelada por el usuario.", vbInformation
+        Exit Sub
+    End If
+    
+    ' Confirmar antes de proceder
+    If MsgBox("¿Está seguro de eliminar todos los registros diferentes a " & strRegistro & "?" & vbCrLf & _
+              "Esta operación no se puede deshacer.", vbQuestion + vbYesNo) = vbNo Then
+        Exit Sub
+    End If
+    
+    Set db = CurrentDb
+    
+    On Error GoTo ErrorHandler
+    
+    ' Iniciar transacción
+    DBEngine.BeginTrans
+    transactionStarted = True
+    
+    ' Recorrer todas las tablas de la base de datos
+    For Each tdf In db.TableDefs
+        ' Guardar el nombre de la tabla actual
+        currentTableName = tdf.Name
+        
+        ' Ignorar tablas del sistema
+        If Left(currentTableName, 4) <> "MSys" Then
+            ' Recorrer campos de la tabla
+            For Each fld In tdf.Fields
+                ' Verificar si el campo coincide con alguno de los nombres buscados
+                If UCase(fld.Name) = "REG_PATR" Or _
+                   UCase(fld.Name) = "REGISTRO" Or _
+                   UCase(fld.Name) = "REG_PAT" Then
+                    
+                    ' Construir y ejecutar la consulta SQL
+                    strSQL = "DELETE * FROM [" & currentTableName & "] " & _
+                            "WHERE [" & fld.Name & "] <> '" & strRegistro & "'"
+                    
+                    db.Execute strSQL, dbFailOnError
+                    
+                    ' Agregar a la lista de tablas procesadas
+                    strTablas = strTablas & currentTableName & " (campo: " & fld.Name & ")" & vbCrLf
+                    
+                    ' Salir del bucle de campos ya que encontramos uno que coincide
+                    Exit For
+                End If
+            Next fld
+        End If
+    Next tdf
+    
+    ' Confirmar transacción solo si se inició
+    If transactionStarted Then
+        DBEngine.CommitTrans
+        transactionStarted = False
+    End If
+    
+    ' Mostrar resumen de operaciones
+    If strTablas <> "" Then
+        MsgBox "Operación completada con éxito." & vbCrLf & vbCrLf & _
+               "Se procesaron las siguientes tablas:" & vbCrLf & _
+               strTablas, vbInformation
+    Else
+        MsgBox "No se encontraron tablas con los campos especificados.", vbInformation
+    End If
+    
+    Exit Sub
+
+ErrorHandler:
+    ' Si hay error y hay una transacción activa, hacer rollback
+    If transactionStarted Then
+        DBEngine.Rollback
+        transactionStarted = False
+    End If
+    
+    ' Mostrar mensaje de error con el nombre de la tabla si está disponible
+    If currentTableName <> "" Then
+        MsgBox "Error " & Err.Number & ": " & Err.Description & vbCrLf & _
+               "En la tabla: " & currentTableName, vbCritical
+    Else
+        MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical
+    End If
+    
+    Exit Sub
+End Sub
