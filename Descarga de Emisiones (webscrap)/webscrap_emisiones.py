@@ -22,7 +22,7 @@ async def monitor_and_close_modal(page, stop_monitoring):
 DOWNLOAD_DIR = r"F:\\01 TRABAJO\\WALMART\\02 IMSS\\02 EMISIONES"
 CSV_PATH = 'templates/rp_con_emision.csv'
 WORKERS = 4  # número de "navegadores" en paralelo
-HEADLESS = os.getenv("HEADLESS", "1") == "1"
+HEADLESS = False  # Cambiar a True para ejecución sin interfaz gráfica
 
 
 async def procesar_registro(page, registro: str) -> tuple[str, str]:
@@ -66,14 +66,36 @@ async def procesar_registro(page, registro: str) -> tuple[str, str]:
         await page.wait_for_load_state("networkidle")
         await asyncio.sleep(5)
 
-        iniciar_buttons = await page.query_selector_all('button:has-text("Iniciar descarga")')
-        if iniciar_buttons:
-            for btn in iniciar_buttons:
-                await btn.click()
-                await asyncio.sleep(2)
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(3)
-            print(f"Se procesaron {len(iniciar_buttons)} botones 'Iniciar descarga' para el registro {registro}")
+        # Consumir todos los botones "Iniciar descarga" hasta que no queden
+        clicked_iniciar = 0
+        locator = page.locator('button:has-text("Iniciar descarga")')
+        max_loops = 50
+        loops = 0
+        while True:
+            try:
+                count = await locator.count()
+            except Exception:
+                count = 0
+            if count == 0 or loops >= max_loops:
+                break
+            try:
+                btn = locator.first
+                await btn.scroll_into_view_if_needed()
+                await btn.click(timeout=5000)
+                clicked_iniciar += 1
+            except Exception:
+                # Si el botón se desprendió del DOM o no es clickeable, reintentar en siguiente ciclo
+                pass
+            loops += 1
+            # Dar tiempo a que el DOM/ajax se estabilice
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+        if clicked_iniciar > 0:
+            print(f"Se procesaron {clicked_iniciar} botones 'Iniciar descarga' para el registro {registro}")
         else:
             print(f"No se encontraron botones de 'Iniciar descarga' para el registro {registro}, buscando enlaces de descarga directamente")
 
